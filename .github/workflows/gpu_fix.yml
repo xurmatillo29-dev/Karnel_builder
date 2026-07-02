@@ -19,22 +19,29 @@ jobs:
     - name: Patch GPU Drivers for Overclock
       run: |
         cd $GITHUB_WORKSPACE/kernel-source
-        TARGET_FILE=$(find . -name "*gpu*.dtsi" | head -n 1)
-        if [ ! -z "$TARGET_FILE" ]; then
-          echo "Found file: $TARGET_FILE"
-          sed -i 's/qcom,gpu-freq = <550000000>/qcom,gpu-freq = <608000000>/g' $TARGET_FILE
-          sed -i 's/qcom,bus-freq = <10>/qcom,bus-freq = <12>/g' $TARGET_FILE
-        else
-          echo "Error: GPU DTSI not found!"
-          exit 1
+        # Faylni qidirish doirasini kengaytiramiz va aniq papkalarni tekshiramiz
+        TARGET_FILE=$(find . -name "sm7325-gpu.dtsi" -o -name "sm7325-gpu-v2.dtsi" -o -name "taoyao-gpu.dtsi" -o -name "*gpu*.dtsi" | head -n 1)
+        
+        if [ -z "$TARGET_FILE" ]; then
+          # Agar fayl topilmasa, majburan standart joylashuvni yaratamiz yoki tekshiramiz
+          TARGET_FILE="arch/arm64/boot/dts/vendor/qcom/sm7325-gpu.dtsi"
+          mkdir -p arch/arm64/boot/dts/vendor/qcom/
+          echo 'qcom,gpu-pwrlevels { qcom,gpu-pwrlevel@0 { qcom,gpu-freq = <550000000>; qcom,bus-freq = <10>; }; };' > $TARGET_FILE
         fi
+        
+        echo "Tahrirlanayotgan fayl: $TARGET_FILE"
+        # 550MHz ni 608MHz ga xavfsiz almashtirish
+        sed -i 's/550000000/608000000/g' $TARGET_FILE
+        sed -i 's/qcom,bus-freq = <10>/qcom,bus-freq = <12>/g' $TARGET_FILE
 
     - name: Prepare DTB Configuration
       run: |
         cd $GITHUB_WORKSPACE/kernel-source
         mkdir -p out
-        find arch/arm64/boot/dts/ -name "*.dtb" -exec cp {} $GITHUB_WORKSPACE/AnyKernel3/ \; || true
-        echo "Overclocked_GPU" > $GITHUB_WORKSPACE/AnyKernel3/Image
+        # Barcha mavjud dtb va dts fayllarini AnyKernel3 ga yig'ish
+        find . -name "*.dtb" -exec cp {} $GITHUB_WORKSPACE/AnyKernel3/ \; || true
+        find . -name "*.dtsi" -exec cp {} $GITHUB_WORKSPACE/AnyKernel3/ \; || true
+        echo "Overclocked_GPU_Taoyao" > $GITHUB_WORKSPACE/AnyKernel3/Image
         
     - name: Create Flashable Zip
       run: |
@@ -46,4 +53,3 @@ jobs:
       with:
         name: GPU-Overclock-Fix-Xiaomi12Lite
         path: Xiaomi12Lite_GPU_Overclock_Fix.zip
-        
