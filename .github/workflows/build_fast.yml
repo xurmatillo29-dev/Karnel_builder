@@ -1,0 +1,57 @@
+name: Xiaomi 12 Lite GPU Fast Fix
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Clean Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache flex g++-multilib gcc-multilib git gnupg gperf zip lz4
+
+    - name: Download Toolchain
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/clang
+        cd $GITHUB_WORKSPACE/clang
+        wget -q https://googlesource.com
+        tar -xf clang-r522817.tar.gz
+
+    - name: Clone Kernel Source
+      run: |
+        git clone --depth=1 -b taoyao-t-oss https://github.com $GITHUB_WORKSPACE/kernel-source
+
+    - name: Force Overclock 608MHz
+      run: |
+        cd $GITHUB_WORKSPACE/kernel-source
+        TARGET_FILE=$(find . -name "*gpu*.dtsi" | head -n 1)
+        if [ ! -z "$TARGET_FILE" ]; then
+          sed -i 's/550000000/608000000/g' $TARGET_FILE
+          sed -i 's/qcom,bus-freq = <10>/qcom,bus-freq = <12>/g' $TARGET_FILE
+        fi
+
+    - name: Compile Minimal Driver
+      run: |
+        cd $GITHUB_WORKSPACE/kernel-source
+        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+        export ARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CC=clang
+        make taoyao_defconfig || make vendor/taoyao_defconfig
+        make -j$(nproc) arch/arm64/boot/Image.gz
+
+    - name: Pack with AnyKernel3
+      run: |
+        cd $GITHUB_WORKSPACE
+        git clone https://github.com
+        cp kernel-source/arch/arm64/boot/Image.gz AnyKernel3/
+        cd AnyKernel3
+        zip -r9 ../X12Lite_GPU_608_Fix.zip *
+
+    - name: Upload Output
+      uses: actions/upload-artifact@v4
+      with:
+        name: GPU-Fix-Package
+        path: X12Lite_GPU_640_Fix.zip
+        
