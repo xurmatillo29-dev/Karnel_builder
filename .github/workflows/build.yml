@@ -1,0 +1,68 @@
+name: Xiaomi 12 Lite Kernel Builder
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Muhitni tayyorlash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+
+    - name: Kompilyatorni yuklash (Clang)
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/clang
+        cd $GITHUB_WORKSPACE/clang
+        wget -q https://googlesource.com
+        tar -xf clang-r522817.tar.gz
+
+    - name: Kernel kodlarini yuklash
+      run: |
+        git clone --depth=1 -b taoyao-t-oss https://github.com $GITHUB_WORKSPACE/kernel-source
+
+    - name: GPU Overclock patch qilish
+      run: |
+        cd $GITHUB_WORKSPACE/kernel-source
+        TARGET_FILE=$(find . -name "sm7325-gpu.dtsi" -o -name "sm7325-gpu-v2.dtsi" | head -n 1)
+        if [ ! -z "$TARGET_FILE" ]; then
+          echo "Fayl topildi: $TARGET_FILE. Tahrirlanmoqda..."
+          sed -i 's/qcom,gpu-freq = <550000000>/qcom,gpu-freq = <608000000>/g' $TARGET_FILE
+          sed -i 's/qcom,bus-freq = <10>/qcom,bus-freq = <12>/g' $TARGET_FILE
+        else
+          echo "Maxsus GPU fayli topilmadi."
+        fi
+
+    - name: Yadro yig'ish (Kompilyatsiya)
+      run: |
+        cd $GITHUB_WORKSPACE/kernel-source
+        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CC=clang
+        if [ -f "arch/arm64/configs/taoyao_defconfig" ]; then
+          make taoyao_defconfig
+        else
+          make vendor/taoyao_defconfig || make gki_defconfig
+        fi
+        make -j$(nproc)
+
+    - name: AnyKernel3 arxivini yaratish
+      run: |
+        cd $GITHUB_WORKSPACE
+        git clone https://github.com
+        if [ -f "kernel-source/arch/arm64/boot/Image.gz" ]; then
+          cp kernel-source/arch/arm64/boot/Image.gz AnyKernel3/
+        elif [ -f "kernel-source/arch/arm64/boot/Image" ]; then
+          cp kernel-source/arch/arm64/boot/Image AnyKernel3/
+        fi
+        cd AnyKernel3
+        zip -r9 ../Custom_Kernel_Xiaomi12Lite.zip *
+
+    - name: Tayyor faylni yuklash
+      uses: actions/upload-artifact@v4
+      with:
+        name: Custom-Kernel-Xiaomi12Lite
+        path: Custom_Kernel_Xiaomi12Lite.zip
