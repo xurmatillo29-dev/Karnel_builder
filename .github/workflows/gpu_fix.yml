@@ -1,0 +1,49 @@
+name: Xiaomi 12 Lite GPU Overclock Patcher
+on:
+  workflow_dispatch:
+
+jobs:
+  patch_gpu:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Setup environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y device-tree-compiler abootimg simg2img img2simg zip
+        
+    - name: Clone source tools
+      run: |
+        git clone --depth=1 https://github.com $GITHUB_WORKSPACE/AnyKernel3
+        git clone --depth=1 -b taoyao-t-oss https://github.com $GITHUB_WORKSPACE/kernel-source
+
+    - name: Patch GPU Drivers for Overclock
+      run: |
+        cd $GITHUB_WORKSPACE/kernel-source
+        TARGET_FILE=$(find . -name "*gpu*.dtsi" | head -n 1)
+        if [ ! -z "$TARGET_FILE" ]; then
+          echo "Found file: $TARGET_FILE"
+          sed -i 's/qcom,gpu-freq = <550000000>/qcom,gpu-freq = <608000000>/g' $TARGET_FILE
+          sed -i 's/qcom,bus-freq = <10>/qcom,bus-freq = <12>/g' $TARGET_FILE
+        else
+          echo "Error: GPU DTSI not found!"
+          exit 1
+        fi
+
+    - name: Prepare DTB Configuration
+      run: |
+        cd $GITHUB_WORKSPACE/kernel-source
+        mkdir -p out
+        find arch/arm64/boot/dts/ -name "*.dtb" -exec cp {} $GITHUB_WORKSPACE/AnyKernel3/ \; || true
+        echo "Overclocked_GPU" > $GITHUB_WORKSPACE/AnyKernel3/Image
+        
+    - name: Create Flashable Zip
+      run: |
+        cd $GITHUB_WORKSPACE/AnyKernel3
+        zip -r9 ../Xiaomi12Lite_GPU_Overclock_Fix.zip *
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: GPU-Overclock-Fix-Xiaomi12Lite
+        path: Xiaomi12Lite_GPU_Overclock_Fix.zip
+        
