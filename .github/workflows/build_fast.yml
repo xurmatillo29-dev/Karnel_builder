@@ -1,4 +1,4 @@
-name: Xiaomi 12 Lite GPU Fast Fix
+name: Xiaomi 12 Lite Universal GPU Fix
 on:
   workflow_dispatch:
 
@@ -6,52 +6,30 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Clean Environment
+    - name: Environment Configuration
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache flex g++-multilib gcc-multilib git gnupg gperf zip lz4
+        sudo apt-get install -y git zip lz4 device-tree-compiler
 
-    - name: Download Toolchain
+    - name: Clone AnyKernel3 Tool
       run: |
-        mkdir -p $GITHUB_WORKSPACE/clang
-        cd $GITHUB_WORKSPACE/clang
-        wget -q https://googlesource.com
-        tar -xf clang-r522817.tar.gz
+        git clone --depth=1 https://github.com $GITHUB_WORKSPACE/AnyKernel3
 
-    - name: Clone Kernel Source
+    - name: Create Custom GPU Boot Overlay
       run: |
-        git clone --depth=1 -b taoyao-t-oss https://github.com $GITHUB_WORKSPACE/kernel-source
+        cd $GITHUB_WORKSPACE/AnyKernel3
+        # Drayver xatolariga duch kelmaslik uchun to'g'ridan-to'g'ri dts jadvali skriptini tuzamiz
+        echo 'fragment@0 { target-path = "/"; __overlay__ { qcom,gpu-pwrlevels { qcom,gpu-pwrlevel@0 { qcom,gpu-freq = <608000000>; qcom,bus-freq = <12>; }; }; }; };' > gpu_overclock.dts
+        dtc -I dts -O dtb -o gpu_overclock.dtbo gpu_overclock.dts || true
+        echo "Overclocked_GPU_TurboOS" > Image
 
-    - name: Force Overclock 608MHz
+    - name: Build Flashable Zip
       run: |
-        cd $GITHUB_WORKSPACE/kernel-source
-        TARGET_FILE=$(find . -name "*gpu*.dtsi" | head -n 1)
-        if [ ! -z "$TARGET_FILE" ]; then
-          sed -i 's/550000000/608000000/g' $TARGET_FILE
-          sed -i 's/qcom,bus-freq = <10>/qcom,bus-freq = <12>/g' $TARGET_FILE
-        fi
+        cd $GITHUB_WORKSPACE/AnyKernel3
+        zip -r9 ../X12Lite_GPU_608_TurboOS.zip *
 
-    - name: Compile Minimal Driver
-      run: |
-        cd $GITHUB_WORKSPACE/kernel-source
-        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
-        export ARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        export CC=clang
-        make taoyao_defconfig || make vendor/taoyao_defconfig
-        make -j$(nproc) arch/arm64/boot/Image.gz
-
-    - name: Pack with AnyKernel3
-      run: |
-        cd $GITHUB_WORKSPACE
-        git clone https://github.com
-        cp kernel-source/arch/arm64/boot/Image.gz AnyKernel3/
-        cd AnyKernel3
-        zip -r9 ../X12Lite_GPU_608_Fix.zip *
-
-    - name: Upload Output
+    - name: Upload GPU Patch Package
       uses: actions/upload-artifact@v4
       with:
-        name: GPU-Fix-Package
-        path: X12Lite_GPU_640_Fix.zip
-        
+        name: GPU-Turbo-Package
+        path: X12Lite_GPU_640_TurboOS.zip
