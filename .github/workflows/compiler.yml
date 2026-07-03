@@ -1,39 +1,91 @@
-name: Build Custom Kernel (Xiaomi 12 Lite)
+name: Build Kernel
 
-on:
-  workflow_dispatch: # Bu tugma yordamida kompilyatsiyani qo'lda boshlaysiz
+on: 
+  workflow_dispatch:
+    inputs:
+      DEVICE_NAME:
+        description: 'Qurilma kodi'
+        required: true
+        default: 'taoyao'
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@main
 
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses5-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3
+        sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libx11-dev lib32z1-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python3 libncurses-dev gcc-aarch64-linux-gnu
 
     - name: Download Clang Toolchain
       run: |
-        mkdir clang
+        mkdir -p clang
         cd clang
         curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
         tar -xf clang-r522817.tar.gz
+        echo "$GITHUB_WORKSPACE/clang/bin" >> $GITHUB_PATH
 
     - name: Clone Kernel Source
       run: |
-        # Bu yerga o'zingiz o'zgartirgan (GPU overclock qilingan) kernel kodini yozasiz
         git clone https://github.com/LineageOS/android_kernel_xiaomi_sm8350.git -b lineage-21 kernel-source
+
+    - name: GPU Overclocking Patch
+      run: |
+        find kernel-source/arch/arm64/boot/dts/vendor/qcom/ -name "*gpu*.dtsi" | while read file; do
+          sed -i 's/550000000/640000000/g' "$file"
+          sed -i 's/565000000/640000000/g' "$file"
+          sed -i 's/608000000/640000000/g' "$file"
+          sed -i 's/627000000/640000000/g' "$file"
+        done
 
     - name: Build Kernel
       run: |
         cd kernel-source
-        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         export ARCH=arm64
         export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CC=clang
+        export KBUILD_BUILD_USER="${{ github.actor }}"
+        export KBUILD_BUILD_HOST="GitHub-Actions"
+        make ${{ github.event.inputs.DEVICE_NAME }}_defconfig
+        make -j$(nproc --all)
+
+    - name: Set Properties
+      id: props
+      run: |
+        echo "date=$(TZ=Asia/Tashkent date +%Y%m%d-%I%M%p)" >> $GITHUB_OUTPUT
+
+    - name: Compress Kernel
+      run: |
+        cd kernel-source/arch/arm64/boot || exit 1
+        zip -r9 "${{ github.event.inputs.DEVICE_NAME }}-${{ steps.props.outputs.date }}.zip" ./Image ./Image.gz* ./dtb*
+
+    - name: Release
+      uses: ncipollo/release-action@v1.12.0
+      with:
+        artifacts: kernel-source/arch/arm64/boot/*.zip
+        name: Xiaomi 12 Lite Custom Kernel - ${{ steps.props.outputs.date }}
+        draft: false
+        prerelease: false
+        tag: kernel-${{ github.run_id }}-${{ steps.props.outputs.date }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        body: |
+          ## 📱 Xiaomi 12 Lite Custom Kernel
+          - **GPU Overclock:** 640 MHz ✅
+          - **Tuzuvchi:** ${{ github.actor }}
+          
+          ⚠️ **Eslatma:** OrangeFox orqali flesh qilishdan oldin har doim `Boot` zaxira nusxasini oling!
+
+    - name: Success Message
+      run: |
+        echo "✅ Kernel muvaffaqiyatli tayyorlandi!"
+        echo "📥 Yuklab olish havolasi: https://github.com/${{ github.repository }}/releases/tag/kernel-${{ github.run_id }}-${{ steps.props.outputs.date }}"
         export CROSS_COMPILE=aarch64-linux-gnu-
         export CC=clang
         
