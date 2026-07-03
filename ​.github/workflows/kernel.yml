@@ -1,0 +1,100 @@
+name: Build Kernel
+
+on: 
+  workflow_dispatch:
+    inputs:
+      DEVICE_NAME:
+        description: 'Qurilma kodi'
+        required: true
+        default: 'taoyao'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+
+    - name: Install Essential Packages
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache curl flex gperf git libc6-dev libssl-dev libncurses-dev lzop libxml2-utils make rsync schedtool unzip zip liblz4-tool
+
+    - name: Download Clang and GCC Toolchains
+      run: |
+        # Clang yuklash
+        mkdir -p toolchains/clang
+        cd toolchains/clang
+        curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
+        tar -xf clang-r522817.tar.gz
+        cd ../..
+        
+        # GCC aarch64 yuklash (Ubuntu paketlaridan qutulish uchun)
+        mkdir -p toolchains/gcc64
+        cd toolchains/gcc64
+        curl -LO https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz
+        tar -xf arm-gnu-toolchain-13.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz --strip-components=1
+        cd ../..
+        
+        # Yo'llarni (PATH) tizimga qo'shish
+        echo "$GITHUB_WORKSPACE/toolchains/clang/bin" >> $GITHUB_PATH
+        echo "$GITHUB_WORKSPACE/toolchains/gcc64/bin" >> $GITHUB_PATH
+
+    - name: Clone Kernel Source
+      run: |
+        git clone https://github.com/LineageOS/android_kernel_xiaomi_sm8350.git -b lineage-21 kernel-source
+
+    - name: GPU Overclocking Patch
+      run: |
+        find kernel-source/arch/arm64/boot/dts/vendor/qcom/ -name "*gpu*.dtsi" | while read file; do
+          sed -i 's/550000000/640000000/g' "$file"
+          sed -i 's/565000000/640000000/g' "$file"
+          sed -i 's/608000000/640000000/g' "$file"
+          sed -i 's/627000000/640000000/g' "$file"
+        done
+
+    - name: Build Kernel
+      run: |
+        cd kernel-source
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-none-linux-gnu-
+        export CC=clang
+        export KBUILD_BUILD_USER="${{ github.actor }}"
+        export KBUILD_BUILD_HOST="GitHub-Actions"
+        make ${{ github.event.inputs.DEVICE_NAME }}_defconfig
+        make -j$(nproc --all)
+
+    - name: Set Properties
+      id: props
+      run: |
+        echo "date=$(TZ=Asia/Tashkent date +%Y%m%d-%I%M%p)" >> $GITHUB_OUTPUT
+
+    - name: Compress Kernel
+      run: |
+        cd kernel-source/arch/arm64/boot || exit 1
+        zip -r9 "${{ github.event.inputs.DEVICE_NAME }}-${{ steps.props.outputs.date }}.zip" ./Image ./Image.gz* ./dtb*
+
+    - name: Release
+      uses: ncipollo/release-action@v1.12.0
+      with:
+        artifacts: kernel-source/arch/arm64/boot/*.zip
+        name: Xiaomi 12 Lite Custom Kernel - ${{ steps.props.outputs.date }}
+        draft: false
+        prerelease: false
+        tag: kernel-${{ github.run_id }}-${{ steps.props.outputs.date }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        body: |
+          ## 📱 Xiaomi 12 Lite Custom Kernel
+          - **GPU Overclock:** 640 MHz ✅
+          - **Tuzuvchi:** ${{ github.actor }}
+          
+          ⚠️ **Eslatma:** OrangeFox orqali flesh qilishdan oldin har doim `Boot` zaxira nusxasini oling!
+
+    - name: Success Message
+      run: |
+        echo "✅ Kernel muvaffaqiyatli tayyorlandi!"
+        echo "📥 Yuklab olish havolasi: https://github.com/${{ github.repository }}/releases/tag/kernel-${{ github.run_id }}-${{ steps.props.outputs.date }}"
